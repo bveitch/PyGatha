@@ -1,0 +1,138 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\begin{document}
+\title{Pygatha: MaxEnt constrained inference}
+\author{B. Veitch}
+\maketitle
+\section{Outline}
+Suppose $K$ players, with $N$ cards. Each card must belong to one player or else be in the mystery pile, 
+\begin{equation}
+\sum_{k}^{K+1}p_{k,n}=1,\label{eqn:probability}
+\end{equation}
+and each player must have $M_k$ cards,
+\begin{equation}
+M_k=\lfloor \frac{N-3}{K}\rfloor+r_{k}.
+\end{equation}
+\begin{equation}
+\sum_{n=1}^{N}p_{k,n}=M_{k}. \label{eqn:sum}
+\end{equation}
+Whilst playing the game we accumulate, $C_k$ constraints for the $k$-th player,
+\begin{equation}
+\sum_{n=1}^{N} w^{c}_{n}p_{n,k}=1\label{eqn:game}
+\end{equation}
+Note that constraints \ref{eqn:sum} and \ref{eqn:game} are both player constraints.
+This gives a formula for the entropy subject to Lagrangian constraints,
+\begin{align}
+\mathcal{L}=&\sum_{n,k} p_{n,k} \log{p_{n,k}}+\sum_{n}\lambda_{n}({\sum_{k} p_{n,k}-1})+\sum_{k}\sum_{c=1}^{C_k} \mu_{k,c}\left( \sum_{n} w^{c}_{n,k}p_{n,k}-F_{c}\right).
+\end{align}
+We want to minimize this expression, 
+Clearly,
+\begin{equation}
+\frac{\partial \mathcal{L}}{\partial p_{n,k}}=1+\log{p_{n,k}}+\lambda_{n}+\sum_{c} \mu_{k,c}  w^{c}_{n,k}\label{eqn:gradL}
+\end{equation}
+When $\frac{\partial \mathcal{L}}{\partial p_{n,k}}=0$,
+\begin{equation}
+p_{n,k}=\exp{\left( -\lambda_{n}-\sum_{c} \mu_{k,c}  w^{c}_{n,k} -1\right)},
+\end{equation}
+Enforcing constraint \ref{eqn:probability}, gives
+\begin{equation}
+\exp(-\lambda_{n}-1)=\frac{1}{Z(\lambda, n)},
+\end{equation}
+where 
+\begin{equation}
+Z(\lambda, n)=
+\sum_{k}^{K+1}\exp{\left(-\sum_{c=1}^{C_k} \mu_{k,c}  w^{c}_{n,k}\right)}.
+\end{equation}
+So,
+\begin{equation}
+p_{n,k}= \frac{\exp{\left(-\sum_{c}  \mu_{k,c}  w^{c}_{n,k}\right)}}{Z(\lambda, n)}.
+\end{equation}
+Now we formulate the dual problem for this $p_{n,k}$, the Lagrangian can be written,
+\begin{align}
+\mathcal{D}=&\sum_{n,k} p_{n,k} \left(\log{p_{n,k}}+\lambda_{n}+\sum_{c} \mu_{k,c}  w^{c}_{n,k}\right)-\sum_{n}\lambda_{n}-\sum_{k}\sum_{c=1}^{C_k} \mu_{k,c}F_{c}.
+\end{align}
+and from, equation \ref{eqn:gradL} at the minimum,
+\begin{equation}
+\mathcal{D}=-\sum_{n}(1+\lambda_{n})-\sum_{k}\sum_{c=1}^{C_k} \mu_{k,c}F_{c}.
+\end{equation}
+\begin{equation}
+\mathcal{D}=-\sum_{n}\log{\left( Z(\lambda, n)\right)}-\sum_{k}\sum_{c=1}^{C_k} \mu_{k,c}F_{c}.
+\end{equation}
+We want to maximize this expression.
+\section{Computing the gradient}
+To plug this into ones favourite optimization algorithm, eg L-BFGS, we need a formula for the gradient of $\mathcal{D}$ with respect to $\mu_{k,c}$.
+\begin{equation}
+\nabla \mathcal{D}_{k,c}= 
+\frac{\partial \mathcal{D}}{\partial \mu_{k,c}},
+\end{equation}
+\begin{equation}
+\nabla \mathcal{D}_{k,c}= -\sum_{n}\frac{1}{ Z(\lambda, n)}\frac{\partial Z}{\partial \mu_{k,c}}-F_{c},
+\end{equation}
+and
+\begin{align}
+\frac{\partial Z}{\partial \mu_{k,c}}&=\sum_{k'}^{K+1}\left(-\sum_{c'=1}^{C_k} \delta_{k,k'}\delta_{c,c'}  w^{c'}_{n,k'}\right)\exp{\left(-\sum_{c'=1}^{C_k} \mu_{k',c'}  w^{c'}_{n,k'}\right)},\\
+&=-w^{c}_{n,k}\exp{\left(-\sum_{c'=1}^{C_k} \mu_{k,c'}  w^{c'}_{n,k}\right)}
+\end{align}
+So,
+\begin{equation}
+\nabla \mathcal{D}_{k,c}= \sum_{n}\frac{w^{c}_{n,k}}{ Z(\lambda, n)}\exp{\left(-\sum_{c'=1}^{C_k} \mu_{k,c'}  w^{c'}_{n,k}\right)}-F_{c}.
+\end{equation}
+from equation \ref{eqn:sum} we see that,
+\begin{equation}
+\nabla \mathcal{D}_{k,c}= \sum_{n}w^{c}_{n,k}p_{n,k}-F_{c}.
+\end{equation}
+Therefore, at the maximum,
+\begin{equation}
+\sum_{n}w^{c}_{n,k}p_{n,k}-F_{c}=0,
+\end{equation}
+and all the constraints are satisfied. 
+We now have an update scheme for fitting $\mu_{k,c}$ to satisfy each players constraints.
+\section{Computing the Hessian}
+Clearly,
+\begin{align}
+\nabla^2 \mathcal{D}_{(k,c), (k',c')}= -\sum_{n}&\frac{w^{c}_{n,k}}{ Z(\lambda, n)^2}\exp{\left(-\sum_{c'=1}^{C_k} \mu_{k,c'}  w^{c'}_{n,k}\right)}\frac{\partial Z}{\partial \mu_{k',c'}} \\
+&+\frac{w^{c}_{n,k}w^{c'}_{n,k'}}{ Z(\lambda, n)}\delta_{k,k'}\exp{\left(-\sum_{c'=1}^{C_k} \mu_{k,c'}  w^{c'}_{n,k}\right)}
+\end{align}
+Substituting,
+\begin{equation}
+E_{k,n}=\exp{\left(-\sum_{c'=1}^{C_k} \mu_{k,c'}  w^{c'}_{n,k}\right)},
+\end{equation}
+into this equation gives,
+\begin{equation}
+\nabla^2 \mathcal{D}_{(k,c), (k',c')}= -\sum_{n}\frac{w^{c}_{n,k}}{ Z(\lambda, n)^2}E_{k,n}\frac{\partial Z}{\partial \mu_{k',c'}}
++\frac{w^{c}_{n,k}w^{c'}_{n,k'}}{ Z(\lambda, n)}\delta_{k,k'}E_{k,n}
+\end{equation}
+\begin{equation}
+\nabla^2 \mathcal{D}_{(k,c), (k',c')}= \sum_{n}\frac{w^{c}_{n,k}w^{c'}_{n,k'}}{ Z(\lambda, n)^2}E_{k,n}E_{k',n}
+-\frac{w^{c}_{n,k}w^{c'}_{n,k'}}{ Z(\lambda, n)}\delta_{k,k'}E_{k,n}.
+\end{equation}
+\begin{equation}
+\nabla^2 \mathcal{D}_{(k,c), (k',c')}= \sum_{n} w^{c}_{n,k}w^{c'}_{n,k'} p_{n,k}p_{n,k'}
+- w^{c}_{n,k}w^{c'}_{n,k'}\delta_{k,k'}p_{n,k}.
+\end{equation}
+So,
+\begin{equation}
+x^T \left[\nabla^2 \mathcal{D} \right]x = \sum_{n} \left[\sum_{k,c} w^{c}_{n,k} p_{n,k} x_{k,c}\right]^2
+- \sum_{k,c} w^{c}_{n,k} p_{n,k} x_{k,c}\sum_{c'}w^{c'}_{n,k} x_{k,c'}.
+\end{equation}
+Let,
+\begin{equation}
+u_{n,k}=\sum_{c} w^{c}_{n,k} x_{k,c},
+\end{equation} 
+then,
+\begin{equation}
+x^T \left[\nabla^2 \mathcal{D} \right]x = \sum_{n} \left[\sum_{k}  p_{n,k} u_{n,k}\right]^2
+- \sum_{k} p_{n,k} u_{n,k}^2.
+\end{equation}
+Since, $\sum_k p_{n,k}=1$, by the Cauchy Schwarz inequality
+\begin{equation}
+\left( \sum_k p_{n,k} u_{k} \right)^2 \le \sum_{k} p_{n,k}u_k^2. 
+\end{equation}
+It follows that,
+\begin{equation}
+x^T \left[\nabla^2 \mathcal{D} \right]x \le 0.
+\end{equation}
+Therefore $\nabla^2 \mathcal{D}$ is positive-semi definite, and so the problem is convex.
+\end{document}
